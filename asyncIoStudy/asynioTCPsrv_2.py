@@ -77,7 +77,7 @@ def tcpReceiver(streamReader):
         try:
             data = yield from streamReader.readuntil(RMS_CMD_END)
         except Exception:
-            log.error(streamReader.exception())
+            log.error('Receiver Erro:'+ streamReader.exception())
             raise Exception('not complete command received')
         message = data.decode()
         log.debug('Received:{}'.format(message))
@@ -135,8 +135,13 @@ async def pump_data_test():
         else:
             await asyncio.sleep(1)
 
+def myExceptHandler(loop, event):
+    log.debug('Exception: {}'.format(event))
+    raise Exception(event)
+
 loop = asyncio.get_event_loop()
 # loop.set_debug(1)  # enable debug
+loop.set_exception_handler(myExceptHandler)
 coro = asyncio.start_server(connectHandler, '127.0.0.1', 8888, loop=loop)
 server = loop.run_until_complete(coro)
 print('Serving on {}'.format(server.sockets[0].getsockname()))
