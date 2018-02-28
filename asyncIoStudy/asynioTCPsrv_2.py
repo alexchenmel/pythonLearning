@@ -51,8 +51,7 @@ def commandParse(message):
 
     return result
 
-@asyncio.coroutine
-def connectHandler(streamReader,streamWriter):
+async def connectHandler(streamReader,streamWriter):
 
     #create session once there is connection requested
     sessionInfo = ['peername', 'sock', 'sockname']
@@ -64,10 +63,22 @@ def connectHandler(streamReader,streamWriter):
 
     eventLoop = asyncio.get_event_loop()  #which means you can't use AbstractEventLoop directly
     #create Receiver and Transmit task
-    taskLists.append(eventLoop.create_task(tcpReceiver(streamReader)))
-    taskLists.append(eventLoop.create_task(tcpTransmitter(streamWriter)))
-
+    # taskLists.append(eventLoop.create_task(tcpReceiver(streamReader)))
+    # taskLists.append(eventLoop.create_task(tcpTransmitter(streamWriter)))
+    tasks = [tcpReceiver(streamReader), tcpTransmitter(streamWriter)]
     eventLoop.create_task(pump_data_test())
+    try:
+        taskResults = await asyncio.gather(*tasks, return_exceptions=True )  #will check result and also if exception happened, return
+    except Exception as e:
+        log.error('Exception in connection handler {}'.format(e))
+        pass
+
+    for result in taskResults:
+        if isinstance(result, Exception):
+            log.error('Exception : {}'.format(result))
+        else:
+            log.info('Client service done!')
+
 
 # task to receive message from socket, and if got message, check if valid message
 # if it is, create and yield task to process it
@@ -76,16 +87,16 @@ def tcpReceiver(streamReader):
     while True:
         try:
             data = yield from streamReader.readuntil(RMS_CMD_END)
-        except Exception:
-            log.error('Receiver Erro:'+ streamReader.exception())
-            raise Exception('not complete command received')
+        except Exception as exec:
+            log.exception('Receiver Erro:')
+            raise exec
+            # raise Exception('not complete command received')
         message = data.decode()
         log.debug('Received:{}'.format(message))
         eventLoop = asyncio.get_event_loop()  # which means you can't use AbstractEventLoop directly
         taskProcess = eventLoop.create_task(process_message(message))
-        # taskProcess = AbstractEventLoop.create_task(process_message, message)
         taskLists.append(taskProcess)
-        yield from asyncio.sleep(1)
+        # yield from asyncio.sleep(1)
 
 # task for process receiver message
 @asyncio.coroutine
@@ -117,8 +128,12 @@ def tcpTransmitter(streamWriter):
     while True:
         if not writeBuffer.empty:
             data = writeBuffer.pop()
-            streamWriter.write(data)
-            yield from streamWriter.drain()
+            try:
+                streamWriter.write(data)
+                yield from streamWriter.drain()
+            except Exception as exec:
+                log.exception('Exception in transmit')
+                raise exec
         else:
             yield from asyncio.sleep(1)
 
@@ -136,12 +151,13 @@ async def pump_data_test():
             await asyncio.sleep(1)
 
 def myExceptHandler(loop, event):
+    print('Something wrong')
     log.debug('Exception: {}'.format(event))
     raise Exception(event)
 
 loop = asyncio.get_event_loop()
 # loop.set_debug(1)  # enable debug
-loop.set_exception_handler(myExceptHandler)
+# loop.set_exception_handler(myExceptHandler)
 coro = asyncio.start_server(connectHandler, '127.0.0.1', 8888, loop=loop)
 server = loop.run_until_complete(coro)
 print('Serving on {}'.format(server.sockets[0].getsockname()))
